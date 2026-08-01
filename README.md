@@ -52,6 +52,33 @@ edit `--direction` / `--placement` in `scripts/open-control-panel.sh`.
 **Requires:** herdr 0.7.0+, [fzf](https://github.com/junegunn/fzf), [jq](https://jqlang.github.io/jq/), and bash.
 Linux and macOS.
 
+### Opening it in a floating popup
+
+herdr's `type = "popup"` gives you a floating window instead of a pane, but it runs a plain shell
+command — it does not inject the plugin environment (`HERDR_PLUGIN_CONFIG_DIR` /
+`HERDR_PLUGIN_STATE_DIR`), and it has no way to know where the plugin was installed. So point it
+at a small wrapper of your own that resolves the install path:
+
+```sh
+#!/usr/bin/env bash
+root="$(herdr plugin list --json | jq -r '.result.plugins[] | select(.plugin_id=="herdr-control-panel").plugin_root')"
+exec bash "$root/scripts/panel.sh"
+```
+
+```toml
+[[keys.command]]
+key = "prefix+space"
+type = "popup"
+command = "herdr-panel"   # the wrapper above, on your PATH
+width = "50%"
+height = "60%"
+```
+
+Resolving the path at run time is not optional: `herdr plugin install` puts the plugin under a
+directory whose name contains the commit hash, so it changes on every update. Your config and
+history are shared with the pane route either way — with the environment missing, the panel asks
+herdr for its config directory and derives the state directory the same way herdr does.
+
 ## Opening a workspace
 
 `New workspace` offers two ways in:

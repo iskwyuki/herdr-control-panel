@@ -35,9 +35,19 @@ herdr_bin="${HERDR_BIN_PATH:-herdr}"
 # fzf の reload から自分自身を呼び直すため、$0 を絶対パスにしておく
 self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
-# 置き場は herdr が環境変数で渡してくる。単体実行や旧環境のために XDG へフォールバックする
-cfg_dir="${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-control-panel}"
-state_dir="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr-control-panel}"
+# 置き場は herdr がプラグインとして起動するときに環境変数で渡してくる。
+# ただし herdr の [[keys.command]] type = "popup" のように「素のコマンド」として
+# 呼ばれる経路では注入されないため、その場合は herdr 自身に問い合わせる。
+# ここを XDG 既定へ直行させると、herdr が管理している設定を無視して別の場所を
+# 読んでしまい、書いたはずの [[actions]] が並ばない事故になる。
+cfg_dir="${HERDR_PLUGIN_CONFIG_DIR:-}"
+if [ -z "$cfg_dir" ]; then
+  cfg_dir="$("$herdr_bin" plugin config-dir herdr-control-panel 2>/dev/null)"
+  # herdr が無い / 未導入のまま直接実行された場合の最後の受け皿
+  [ -n "$cfg_dir" ] || cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr-control-panel"
+fi
+# state の場所を教える CLI は無い（0.7.5 時点）。herdr と同じ規則で組み立てる
+state_dir="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/herdr-control-panel}"
 actions_file="$cfg_dir/config.toml"
 lang_file="$cfg_dir/language"      # UI から切り替える値なので config.toml とは分けてある
 hist_file="$state_dir/workspaces"
@@ -699,7 +709,9 @@ fi
 
 ensure_config
 
-# v0.1 までは履歴を XDG_STATE_HOME 直下に置いていた。herdr が用意する STATE_DIR へ一度だけ移す
+# 履歴を XDG_STATE_HOME 直下に置いていた頃のものを、herdr の STATE_DIR へ一度だけ移す。
+# v0.1 の既定がそこだったのに加え、v0.2.0 までは popup 起動時のフォールバック先も
+# そこだったため、環境変数の無い経路で使っていた履歴がここで引き継がれる
 # （両者が同じパスに解決される環境では [ -f "$hist_file" ] が真になり、何も起きない）
 legacy_hist="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-control-panel/workspaces"
 if [ ! -f "$hist_file" ] && [ -f "$legacy_hist" ]; then

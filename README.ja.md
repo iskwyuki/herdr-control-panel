@@ -51,6 +51,33 @@ command = "herdr plugin action invoke open-control-panel --plugin herdr-control-
 **必要なもの:** herdr 0.7.0+、[fzf](https://github.com/junegunn/fzf)、[jq](https://jqlang.github.io/jq/)、bash。
 Linux と macOS に対応。
 
+### フローティング小窓（popup）で開く
+
+herdr の `type = "popup"` を使うとペインではなく小窓で開けるが、popup が実行するのは素のシェル
+コマンドで、プラグインの環境変数（`HERDR_PLUGIN_CONFIG_DIR` / `HERDR_PLUGIN_STATE_DIR`）は
+注入されず、プラグインがどこに入ったかも分からない。そこで導入先を解決する小さなラッパーを
+用意して、そちらを指す:
+
+```sh
+#!/usr/bin/env bash
+root="$(herdr plugin list --json | jq -r '.result.plugins[] | select(.plugin_id=="herdr-control-panel").plugin_root')"
+exec bash "$root/scripts/panel.sh"
+```
+
+```toml
+[[keys.command]]
+key = "prefix+space"
+type = "popup"
+command = "herdr-panel"   # 上のラッパー（PATH 上に置く）
+width = "50%"
+height = "60%"
+```
+
+パスを実行時に解決するのは省略できない。`herdr plugin install` の導入先はディレクトリ名に
+コミットハッシュが入るため、更新のたびに変わるからだ。設定と履歴はペイン経由と共有される。
+環境変数が無い場合、パネルは config の場所を herdr に問い合わせ、state は herdr と同じ規則で
+組み立てる。
+
 ## ワークスペースを開く
 
 「新規ワークスペース」を選ぶと 2 通りの開き方が出る。
