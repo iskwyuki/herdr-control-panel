@@ -89,6 +89,12 @@ test_the_plugin_id_matches_the_one_the_panel_asks_herdr_for() {
 # そのグローバル変数を触る構造上、SC2034 / SC2154 が大量に出るので対象外にしている
 # （抑制コメントで埋めるほうが読みにくい）。
 test_shellcheck_is_clean() {
+  # SKIP_SHELLCHECK は CI の macOS ジョブ用。版が違うと指摘も違うので、検査は
+  # 版を固定した Linux ジョブに一本化し、macOS には bash 3.2 での実行を担当させる
+  if [ -n "${SKIP_SHELLCHECK:-}" ]; then
+    printf '      (SKIP_SHELLCHECK is set — skipped)\n'
+    return 0
+  fi
   if ! command -v shellcheck >/dev/null 2>&1; then
     printf '      (shellcheck not installed — skipped)\n'
     return 0

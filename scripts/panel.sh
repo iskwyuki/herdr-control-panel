@@ -723,7 +723,11 @@ require_deps() {
 migrate_legacy_history() {
   local legacy_hist="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-control-panel/workspaces"
   if [ -f "$hist_file" ] || [ ! -f "$legacy_hist" ]; then return 0; fi
-  mkdir -p "$(dirname "$hist_file")" 2>/dev/null && cp "$legacy_hist" "$hist_file" 2>/dev/null || true
+  # 引き継ぎに失敗してもパネルは開くべきなので、どちらの失敗も握りつぶす
+  if mkdir -p "$(dirname "$hist_file")" 2>/dev/null; then
+    cp "$legacy_hist" "$hist_file" 2>/dev/null || true
+  fi
+  return 0
 }
 
 #-------------------------------------------------------------------------------
