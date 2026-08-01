@@ -14,7 +14,7 @@
 
 id = "herdr-control-panel"
 name = "herdr-control-panel"
-version = "0.2.1"
+version = "0.2.2"
 description = "Control panel: open a workspace from history or any path, and add your own actions."
 min_herdr_version = "0.7.0"
 platforms = ["linux", "macos"]

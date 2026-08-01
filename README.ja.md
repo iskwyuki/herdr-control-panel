@@ -1,5 +1,7 @@
 # herdr-control-panel
 
+[![test](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml/badge.svg)](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml)
+
 キーひとつ、パネルひとつ。ワークスペースを履歴または任意のパスから開き、同じメニューに自分の項目を足せる。
 
 [herdr](https://herdr.dev) のプラグイン。bash と fzf だけで動き、ビルドは要らない。
@@ -146,6 +148,23 @@ Open Folder のブラウザはこの一手でできている。
 
 **bash 3.2 互換。** macOS の `/bin/bash` はいまだに 3.2 系で、GUI アプリから起動された端末には
 Homebrew の bash 5 が `PATH` に無いことがある。連想配列も `mapfile` も使っていない。
+
+## 開発
+
+```sh
+tests/run.sh                # 全部
+tests/run.sh parse paths    # tests/test_parse.sh と tests/test_paths.sh だけ
+bash tests/test_parse.sh    # 1 ファイルを単体で
+```
+
+テストフレームワークの導入は要らない。ハーネスは素の bash 1 ファイルで、パネル本体と同じく
+3.2 で動く。CI は同じスクリプトを Linux と macOS で `/bin/bash` から実行するので、macOS 側が
+このプラグインの下限である 3.2 をそのまま検証することになる。
+
+`panel.sh` は `source` しても安全にしてある（直接実行したときだけ `main` が走り、source では
+関数定義だけが読まれる）。そのためテストは UI を操作せず、`parse_actions` や `complete_dirs`、
+`add_history` を直接呼ぶ。パネルが元々持っていた 2 つのサブコマンド（設定検証の `--check-config` と
+fzf の reload 用 `--complete-dirs`）は、そのまま統合テストの入口として使っている。
 
 ## ライセンス
 

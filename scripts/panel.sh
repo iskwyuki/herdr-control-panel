@@ -29,6 +29,12 @@
 #       find / grep / sed / sort / awk（候補の生成。いずれも POSIX 範囲で使う）
 #       ※ lazygit 等は同梱しない。利用者が [[actions]] に足したものだけ検査する
 # 制約: macOS 標準の bash 3.2 でも動くこと（連想配列・mapfile は使わない）
+#
+# SC2059（printf のフォーマットに変数を使うな）はこのファイルでは意図的。msg() が返す
+# 文言そのものが "%s" を含むフォーマットで、呼び出し側が引数を埋める設計になっている
+# （msg() のコメント参照）。文言と引数の対応を壊さずに個別 disable を 14 箇所へ散らすより、
+# 設計として一度宣言するほうが読みやすいのでファイル単位で無効化する。
+# shellcheck disable=SC2059
 set -uo pipefail
 
 herdr_bin="${HERDR_BIN_PATH:-herdr}"
@@ -173,13 +179,16 @@ msg() {
 short_path() {  # $HOME 配下を ~ 表記に縮める（表示用）
   case "$1" in
     "$HOME")   printf '~' ;;
-    "$HOME"/*) printf '~%s' "${1#$HOME}" ;;
+    "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
     *)         printf '%s' "$1" ;;
   esac
 }
 
 expand_path() {  # 入力されたパスを絶対パスに正規化する（~ 展開・相対は $HOME 起点）
   local p="$1"
+  # ここの "~" は「利用者が打った文字としての ~」にマッチさせるためのリテラル。
+  # 展開されては困るので shellcheck の指摘（SC2088）は当たらない
+  # shellcheck disable=SC2088
   case "$p" in
     "~")   p="$HOME" ;;
     "~/"*) p="$HOME${p#\~}" ;;
@@ -248,17 +257,14 @@ complete_dirs() {
     # 件数が多くなるのでサブシェル（short_path）は使わずインラインで縮める
     disp="$d"
     case "$disp" in
-      "$HOME"/*) disp="~${disp#$HOME}" ;;
+      "$HOME")   disp="~" ;;
+      "$HOME"/*) disp="~${disp#"$HOME"}" ;;
     esac
     printf 'DIR%s%s/%s%s\n' "$TAB" "$disp" "$TAB" "$d"
   done
 }
 
-# fzf の reload 経路。メニューを出さず候補だけ吐いて終わる
-if [ "${1:-}" = "--complete-dirs" ]; then
-  complete_dirs "${2:-}"
-  exit 0
-fi
+# （fzf の reload 経路 --complete-dirs は main で捌く。関数はここまでで揃っている）
 
 #-------------------------------------------------------------------------------
 # 利用者定義のアクション（$actions_file）
@@ -427,28 +433,29 @@ requirement_of() {
   if [ -n "$requires" ]; then printf '%s' "$requires"; else printf '%s' "${command%% *}"; fi
 }
 
-# 設定の検証だけを行う経路。[[actions]] を書いたあとにパネルを開かず確認できる。
-# 問題があれば非ゼロで終わるので、シェルからそのまま判定に使える。
-if [ "${1:-}" = "--check-config" ]; then
-  _parsed="$(parse_actions)"
-  _acts="$(only_kind "$_parsed" ACT)"
-  _errs="$(only_kind "$_parsed" ERR | cut -d"$TAB" -f2- | sort_errors)"
+# 設定の検証だけを行う経路（--check-config）。[[actions]] を書いたあとにパネルを開かず確認できる。
+# 問題があれば非ゼロを返すので、シェルからそのまま判定に使える。
+check_config() {
+  local parsed acts errs
+  parsed="$(parse_actions)"
+  acts="$(only_kind "$parsed" ACT)"
+  errs="$(only_kind "$parsed" ERR | cut -d"$TAB" -f2- | sort_errors)"
   printf '%s\n' "$actions_file"
   if [ ! -f "$actions_file" ]; then
     printf '  %s\n' "$(msg cfg_none)"
-    exit 0
+    return 0
   fi
-  if [ -n "$_acts" ]; then
-    printf '%s\n' "$_acts" | while IFS="$TAB" read -r _ _l _c _r; do
-      printf '  ok   %s -> %s%s\n' "$_l" "$_c" "${_r:+ [requires: $_r]}"
+  if [ -n "$acts" ]; then
+    printf '%s\n' "$acts" | while IFS="$TAB" read -r _ l c r; do
+      printf '  ok   %s -> %s%s\n' "$l" "$c" "${r:+ [requires: $r]}"
     done
   fi
-  if [ -n "$_errs" ]; then
-    printf '%s\n' "$_errs" | while IFS= read -r _e; do printf '  ERR  %s\n' "$_e"; done
-    exit 1
+  if [ -n "$errs" ]; then
+    printf '%s\n' "$errs" | while IFS= read -r e; do printf '  ERR  %s\n' "$e"; done
+    return 1
   fi
-  exit 0
-fi
+  return 0
+}
 
 #-------------------------------------------------------------------------------
 # 履歴
@@ -478,7 +485,8 @@ list_history() {  # 存在するものだけを行フォーマットで出す
     [ -n "$d" ] && [ -d "$d" ] || continue
     disp="$d"
     case "$disp" in
-      "$HOME"/*) disp="~${disp#$HOME}" ;;
+      "$HOME")   disp="~" ;;
+      "$HOME"/*) disp="~${disp#"$HOME"}" ;;
     esac
     printf 'HIST%s%s%s%s\n' "$TAB" "$disp" "$TAB" "$d"
   done < "$hist_file"
@@ -527,8 +535,8 @@ pick_folder() {
     { IFS= read -r query; IFS= read -r key; IFS= read -r sel; } <<EOF
 $out
 EOF
-    kind="${sel%%$TAB*}"
-    path="${sel##*$TAB}"
+    kind="${sel%%"$TAB"*}"
+    path="${sel##*"$TAB"}"
 
     if [ "$key" = "ctrl-o" ]; then
       target="$(expand_path "$query")"
@@ -568,8 +576,8 @@ choose_workspace() {
   sel=$(printf '%s\n' "$sel" | fzf "${fzf_opts[@]}" "${menu_opts[@]}" \
         --header="$(msg header_ws)") || return 1
 
-  kind="${sel%%$TAB*}"
-  path="${sel##*$TAB}"
+  kind="${sel%%"$TAB"*}"
+  path="${sel##*"$TAB"}"
   case "$kind" in
     HIST)   printf '%s' "$path"; return 0 ;;
     BROWSE) pick_folder "$start"; return $? ;;
@@ -640,7 +648,7 @@ add_action_flow() {
   sel=$(printf '%s\n' "$sel" | fzf "${fzf_opts[@]}" --delimiter="$TAB" --with-nth=2 \
         --header="$(msg header_add)") || return 1
 
-  case "${sel%%$TAB*}" in
+  case "${sel%%"$TAB"*}" in
     CUSTOM)
       label=$(ask_line "$(msg prompt_label)") || return 1
       command=$(ask_line "$(msg prompt_command)") || return 1
@@ -681,7 +689,7 @@ language_flow() {
   ) || return 1
   sel=$(printf '%s\n' "$sel" | fzf "${fzf_opts[@]}" "${menu_opts[@]}" \
         --header="$(msg header_lang)") || return 1
-  sel="${sel%%$TAB*}"
+  sel="${sel%%"$TAB"*}"
   case "$sel" in
     en|ja)
       mkdir -p "$cfg_dir" 2>/dev/null || return 1
@@ -694,99 +702,124 @@ language_flow() {
 #-------------------------------------------------------------------------------
 # 依存チェック（無ければ案内して閉じる）
 #-------------------------------------------------------------------------------
-missing=""
-command -v fzf >/dev/null 2>&1 || missing="$missing fzf"
-command -v jq  >/dev/null 2>&1 || missing="$missing jq"
-if [ -n "$missing" ]; then
+require_deps() {
+  local missing="" install_hint
+  command -v fzf >/dev/null 2>&1 || missing="$missing fzf"
+  command -v jq  >/dev/null 2>&1 || missing="$missing jq"
+  [ -n "$missing" ] || return 0
   case "$(uname -s)" in
     Darwin) install_hint="brew install$missing" ;;
     *)      install_hint="sudo apt install -y$missing" ;;
   esac
   printf "$(msg err_missing)\n  %s\n" "$missing" "$install_hint" >&2
   pause_error ""
-  exit 1
-fi
-
-ensure_config
+  return 1
+}
 
 # 履歴を XDG_STATE_HOME 直下に置いていた頃のものを、herdr の STATE_DIR へ一度だけ移す。
 # v0.1 の既定がそこだったのに加え、v0.2.0 までは popup 起動時のフォールバック先も
 # そこだったため、環境変数の無い経路で使っていた履歴がここで引き継がれる
 # （両者が同じパスに解決される環境では [ -f "$hist_file" ] が真になり、何も起きない）
-legacy_hist="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-control-panel/workspaces"
-if [ ! -f "$hist_file" ] && [ -f "$legacy_hist" ]; then
+migrate_legacy_history() {
+  local legacy_hist="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-control-panel/workspaces"
+  [ ! -f "$hist_file" ] && [ -f "$legacy_hist" ] || return 0
   mkdir -p "$(dirname "$hist_file")" 2>/dev/null && cp "$legacy_hist" "$hist_file" 2>/dev/null || true
-fi
+}
 
 #-------------------------------------------------------------------------------
 # メインメニュー
 #-------------------------------------------------------------------------------
 # 同梱項目は「新規ワークスペース」だけ。利用者が [[actions]] に足したものがその下に並ぶ。
 # ESC はひとつ前のメニューに戻る（ここで ESC ならパネルを閉じる）。
-while :; do
-  parsed="$(parse_actions)"
-  actions="$(only_kind "$parsed" ACT)"
-  cfg_errors="$(only_kind "$parsed" ERR | cut -d"$TAB" -f2- | sort_errors)"
+main_menu() {
+  local parsed actions cfg_errors action dir cmd
+  while :; do
+    parsed="$(parse_actions)"
+    actions="$(only_kind "$parsed" ACT)"
+    cfg_errors="$(only_kind "$parsed" ERR | cut -d"$TAB" -f2- | sort_errors)"
 
-  action=$(
-    printf 'NEW%s%s%s\n' "$TAB" "$(msg item_new)" "$TAB"
-    if [ -n "$actions" ]; then
-      printf '%s\n' "$actions" | while IFS="$TAB" read -r _ label command requires; do
-        [ -n "$label" ] || continue
-        if have_requirement "$(requirement_of "$command" "$requires")"; then
-          printf 'RUN%s%s%s%s\n' "$TAB" "$label" "$TAB" "$command"
-        else
-          printf 'RUN%s%s  (%s)%s%s\n' "$TAB" "$label" "$(msg not_installed)" "$TAB" "$command"
-        fi
-      done
-    fi
-    printf 'ADD%s%s%s\n' "$TAB" "$(msg item_add)" "$TAB"
-    printf 'LANG%s%s%s\n' "$TAB" "$(msg item_lang)" "$TAB"
-    if [ -n "$cfg_errors" ]; then
-      printf 'CFGERR%s%s%s\n' "$TAB" "$(printf "$(msg cfg_bad)" "$(printf '%s\n' "$cfg_errors" | wc -l | tr -d ' ')")" "$TAB"
-    fi
-    printf 'QUIT%s%s%s\n' "$TAB" "$(msg item_cancel)" "$TAB"
-  ) || exit 0
-  action=$(printf '%s\n' "$action" | fzf "${fzf_opts[@]}" "${menu_opts[@]}" \
-           --header="$(msg header_main)") || exit 0
-
-  case "${action%%$TAB*}" in
-    NEW)
-      dir=$(choose_workspace) || continue   # ワークスペース選択で ESC → このメニューへ
-      [ -n "${dir:-}" ] || continue
-      open_workspace "$dir" || exit 1
-      exit 0
-      ;;
-
-    RUN)
-      # 利用者が [[actions]] に書いたコマンド。シェルで実行する（パイプや引数を許すため）
-      cmd="${action##*$TAB}"
-      [ -n "$cmd" ] || continue
-      if ! have_requirement "${cmd%% *}"; then
-        pause_error "$(printf "$(msg err_run)" "${cmd%% *}")"
-        continue
+    action=$(
+      printf 'NEW%s%s%s\n' "$TAB" "$(msg item_new)" "$TAB"
+      if [ -n "$actions" ]; then
+        printf '%s\n' "$actions" | while IFS="$TAB" read -r _ label command requires; do
+          [ -n "$label" ] || continue
+          if have_requirement "$(requirement_of "$command" "$requires")"; then
+            printf 'RUN%s%s%s%s\n' "$TAB" "$label" "$TAB" "$command"
+          else
+            printf 'RUN%s%s  (%s)%s%s\n' "$TAB" "$label" "$(msg not_installed)" "$TAB" "$command"
+          fi
+        done
       fi
-      exec bash -c "$cmd"
-      ;;
+      printf 'ADD%s%s%s\n' "$TAB" "$(msg item_add)" "$TAB"
+      printf 'LANG%s%s%s\n' "$TAB" "$(msg item_lang)" "$TAB"
+      if [ -n "$cfg_errors" ]; then
+        printf 'CFGERR%s%s%s\n' "$TAB" "$(printf "$(msg cfg_bad)" "$(printf '%s\n' "$cfg_errors" | wc -l | tr -d ' ')")" "$TAB"
+      fi
+      printf 'QUIT%s%s%s\n' "$TAB" "$(msg item_cancel)" "$TAB"
+    ) || return 0
+    action=$(printf '%s\n' "$action" | fzf "${fzf_opts[@]}" "${menu_opts[@]}" \
+             --header="$(msg header_main)") || return 0
 
-    ADD)
-      add_action_flow || true
-      continue
-      ;;
+    case "${action%%"$TAB"*}" in
+      NEW)
+        dir=$(choose_workspace) || continue   # ワークスペース選択で ESC → このメニューへ
+        [ -n "${dir:-}" ] || continue
+        open_workspace "$dir" || return 1
+        return 0
+        ;;
 
-    LANG)
-      language_flow || true
-      continue
-      ;;
+      RUN)
+        # 利用者が [[actions]] に書いたコマンド。シェルで実行する（パイプや引数を許すため）
+        cmd="${action##*"$TAB"}"
+        [ -n "$cmd" ] || continue
+        if ! have_requirement "${cmd%% *}"; then
+          pause_error "$(printf "$(msg err_run)" "${cmd%% *}")"
+          continue
+        fi
+        exec bash -c "$cmd"
+        ;;
 
-    CFGERR)
-      printf '%s\n\n%s\n' "$(printf "$(msg cfg_header)" "$actions_file")" "$cfg_errors" >&2
-      pause_error ""
-      continue
-      ;;
+      ADD)
+        add_action_flow || true
+        continue
+        ;;
 
-    *)
-      exit 0
-      ;;
+      LANG)
+        language_flow || true
+        continue
+        ;;
+
+      CFGERR)
+        printf '%s\n\n%s\n' "$(printf "$(msg cfg_header)" "$actions_file")" "$cfg_errors" >&2
+        pause_error ""
+        continue
+        ;;
+
+      *)
+        return 0
+        ;;
+    esac
+  done
+}
+
+#-------------------------------------------------------------------------------
+# エントリポイント
+#-------------------------------------------------------------------------------
+# 直接実行されたときだけ走らせる。source した場合は関数定義だけが読み込まれる
+# （テストから個々の関数を呼べるようにするため。bash の __main__ 相当のイディオム）。
+main() {
+  case "${1:-}" in
+    # fzf の reload から呼ばれる候補生成。メニューを出さず候補だけ吐いて終わる
+    --complete-dirs) complete_dirs "${2:-}"; return 0 ;;
+    --check-config)  check_config; return $? ;;
   esac
-done
+
+  require_deps || return 1
+  ensure_config
+  migrate_legacy_history
+  main_menu
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

@@ -1,0 +1,34 @@
+name: test
+
+# PR に対して走らせるのが本命（マージ前に落とす）。push は main に入ったあとの
+# 状態を確認するため。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同じ PR を続けて push したときは古い実行を打ち切る
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false          # 片方が落ちても、もう片方の結果は見たい
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Linux ランナーには入っていないので明示的に導入する。macOS ランナーには
+      # プリインストールされており、無い場合はテスト側がスキップする
+      - name: Install shellcheck
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # /bin/bash を明示するのが肝。macOS ランナーではこれが 3.2 系で、
+      # このプラグインが守ると宣言している下限そのものになる（PATH 上の bash は 5.x）
+      - name: Run tests on the system bash
+        run: /bin/bash tests/run.sh
