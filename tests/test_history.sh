@@ -23,6 +23,12 @@ setup() {
 entries() { cat "$hist_file" 2>/dev/null; }
 joined()  { printf '%s' "$(tr '\n' ' ' | sed 's/ $//')"; }
 
+# root は権限に縛られないので、書き込み失敗を作れない
+running_as_root() {
+  [ "$(id -u)" = 0 ] || return 1
+  printf '      (running as root — permissions cannot be enforced, skipped)\n'
+}
+
 #-------------------------------------------------------------------------------
 # add_history — 終了ステータス（呼び出し側が exit 判定に使う）
 #-------------------------------------------------------------------------------
@@ -95,11 +101,28 @@ test_keeps_the_newest_entries_when_it_overflows() {
   assert_not_contains "$(entries)" "$TMP/dir-0" "the oldest entry must fall off"
 }
 
-test_never_leaves_the_history_empty_after_a_write() {
-  # 書き出しに失敗したら元を残す（空ファイルで上書きしない）契約
+test_keeps_the_previous_history_when_the_write_fails() {
+  # 書き出しに失敗したら元を残す（空ファイルで上書きしない）契約。
+  # 置き場を書き込み不可にして一時ファイルの作成を失敗させる
+  if running_as_root; then return 0; fi
   add_history "$TMP/a"
-  add_history "$TMP/b"
-  assert_eq "2" "$(entries | wc -l | tr -d ' ')"
+  chmod 500 "$(dirname "$hist_file")"
+  add_history "$TMP/b" 2>/dev/null
+  chmod 700 "$(dirname "$hist_file")"
+  assert_eq "$TMP/a" "$(entries | joined)" "the old history must survive a failed write"
+}
+
+test_does_not_report_a_failed_move_when_the_write_fails() {
+  # [ -s "$tmp" ] のガードが無いと、作れなかった一時ファイルを mv しようとして
+  # "mv: No such file or directory" がパネルの表示に漏れる。
+  # 履歴の中身だけを見ていると、この差は現れない（どちらでも元が残るため）
+  if running_as_root; then return 0; fi
+  add_history "$TMP/a"
+  chmod 500 "$(dirname "$hist_file")"
+  local err
+  err="$(add_history "$TMP/b" 2>&1 >/dev/null)"
+  chmod 700 "$(dirname "$hist_file")"
+  assert_not_contains "$err" "mv:" "a failed move must not reach the panel"
 }
 
 #-------------------------------------------------------------------------------

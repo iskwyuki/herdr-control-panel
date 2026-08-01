@@ -14,7 +14,9 @@ setup() {
   # macOS の $TMPDIR は /var/folders/... というシンボリックリンク越しの場所なので、
   # 比較のために実体のパスへ寄せておく
   TMP="$(cd "$TMP" && pwd -P)"
-  mkdir -p "$TMP/alpha" "$TMP/alphabet" "$TMP/beta" "$TMP/xalpha" "$TMP/.hidden"
+  # aalpha は「辞書順では先頭・前方一致ではない」役。これが無いと、並び替えを
+  # 素通しにしても結果が変わらず、前方一致優先のテストが恒真になる
+  mkdir -p "$TMP/alpha" "$TMP/alphabet" "$TMP/aalpha" "$TMP/beta" "$TMP/xalpha" "$TMP/.hidden"
   : > "$TMP/plain.txt"
   ln -s "$TMP/alpha"     "$TMP/dirlink"
   ln -s "$TMP/plain.txt" "$TMP/filelink"
@@ -106,7 +108,7 @@ test_short_path_does_not_shorten_a_sibling_that_shares_the_home_prefix() {
 # complete_dirs — 候補の中身
 #-------------------------------------------------------------------------------
 test_lists_directories_under_a_path_ending_in_a_slash() {
-  assert_eq "alpha alphabet beta dirlink xalpha" "$(names_of "$TMP/" | joined)"
+  assert_eq "aalpha alpha alphabet beta dirlink xalpha" "$(names_of "$TMP/" | joined)"
 }
 
 test_skips_regular_files() {
@@ -140,12 +142,13 @@ test_lists_the_contents_of_a_directory_reached_through_a_symlink() {
 }
 
 test_sorts_prefix_matches_before_substring_matches() {
-  # パス補完としての自然さを優先する（xalpha も候補ではあるが後ろ）
-  assert_eq "alpha alphabet xalpha" "$(names_of "$TMP/alpha" | joined)"
+  # パス補完としての自然さを優先する。aalpha は辞書順なら先頭に来るので、
+  # 並び替えを外すと結果が変わる＝この並びが実装の証拠になる
+  assert_eq "alpha alphabet aalpha xalpha" "$(names_of "$TMP/alpha" | joined)"
 }
 
 test_matches_case_insensitively() {
-  assert_eq "alpha alphabet xalpha" "$(names_of "$TMP/ALPHA" | joined)"
+  assert_eq "alpha alphabet aalpha xalpha" "$(names_of "$TMP/ALPHA" | joined)"
 }
 
 #-------------------------------------------------------------------------------
