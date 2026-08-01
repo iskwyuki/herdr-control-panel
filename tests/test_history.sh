@@ -15,6 +15,8 @@ setup() {
   ui_lang=en
   TMP="$(cd "$TMP" && pwd -P)"
   hist_file="$TMP/state/workspaces"   # 親ディレクトリはまだ無い
+  export XDG_STATE_HOME="$TMP/xdg"    # 引き継ぎ元（旧い置き場）の位置を握る
+  legacy_dir="$XDG_STATE_HOME/herdr-control-panel"
   mkdir -p "$TMP/a" "$TMP/b" "$TMP/c"
 }
 
@@ -141,6 +143,40 @@ test_list_history_ignores_blank_lines() {
   mkdir -p "$(dirname "$hist_file")"
   printf '%s\n\n%s\n' "$TMP/a" "$TMP/b" > "$hist_file"
   assert_eq "$TMP/a $TMP/b" "$(list_history | cut -d"$TAB" -f3 | joined)"
+}
+
+#-------------------------------------------------------------------------------
+# migrate_legacy_history — 旧い置き場からの引き継ぎ
+#-------------------------------------------------------------------------------
+# v0.1 の既定と、v0.2.0 までの popup 起動時のフォールバック先が
+# $XDG_STATE_HOME/herdr-control-panel だった。そこに溜まった履歴を一度だけ移す。
+test_migrates_history_from_the_old_location() {
+  mkdir -p "$legacy_dir"
+  printf '%s\n' "$TMP/a" > "$legacy_dir/workspaces"
+  migrate_legacy_history
+  assert_eq "$TMP/a" "$(entries)"
+}
+
+test_does_not_overwrite_a_history_that_already_exists() {
+  mkdir -p "$legacy_dir" "$(dirname "$hist_file")"
+  printf '%s\n' "$TMP/from-the-old-place" > "$legacy_dir/workspaces"
+  printf '%s\n' "$TMP/current" > "$hist_file"
+  migrate_legacy_history
+  assert_eq "$TMP/current" "$(entries)"
+}
+
+test_does_nothing_when_there_is_no_old_history() {
+  assert_status 0 migrate_legacy_history
+  assert_empty "$(entries)"
+}
+
+test_migration_is_idempotent() {
+  mkdir -p "$legacy_dir"
+  printf '%s\n' "$TMP/a" > "$legacy_dir/workspaces"
+  migrate_legacy_history
+  add_history "$TMP/b"
+  migrate_legacy_history     # 2 回目は既に $hist_file があるので何もしない
+  assert_eq "$TMP/b $TMP/a" "$(entries | joined)"
 }
 
 run_tests

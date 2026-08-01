@@ -28,6 +28,13 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
+      # 版によって指摘が変わる（手元の 0.11 で出ない SC2015 が apt 版で出た実績あり）。
+      # 手元と食い違ったときに原因を追えるよう、使った版をログに残す
+      - name: Show tool versions
+        run: |
+          /bin/bash --version | head -1
+          shellcheck --version 2>/dev/null | grep version || echo "shellcheck: not installed"
+
       # /bin/bash を明示するのが肝。macOS ランナーではこれが 3.2 系で、
       # このプラグインが守ると宣言している下限そのものになる（PATH 上の bash は 5.x）
       - name: Run tests on the system bash

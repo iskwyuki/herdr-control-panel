@@ -482,7 +482,7 @@ list_history() {  # 存在するものだけを行フォーマットで出す
   local d disp
   [ -f "$hist_file" ] || return 0
   while IFS= read -r d; do
-    [ -n "$d" ] && [ -d "$d" ] || continue
+    if [ -z "$d" ] || [ ! -d "$d" ]; then continue; fi
     disp="$d"
     case "$disp" in
       "$HOME")   disp="~" ;;
@@ -661,7 +661,7 @@ add_action_flow() {
     *) return 1 ;;
   esac
 
-  [ -n "$label" ] && [ -n "$command" ] || return 1
+  if [ -z "$label" ] || [ -z "$command" ]; then return 1; fi
 
   # 値の中の " は解釈できない記法なので、書き込む前に弾く（壊れた設定を自分で作らない）
   case "$label$command" in
@@ -722,7 +722,7 @@ require_deps() {
 # （両者が同じパスに解決される環境では [ -f "$hist_file" ] が真になり、何も起きない）
 migrate_legacy_history() {
   local legacy_hist="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-control-panel/workspaces"
-  [ ! -f "$hist_file" ] && [ -f "$legacy_hist" ] || return 0
+  if [ -f "$hist_file" ] || [ ! -f "$legacy_hist" ]; then return 0; fi
   mkdir -p "$(dirname "$hist_file")" 2>/dev/null && cp "$legacy_hist" "$hist_file" 2>/dev/null || true
 }
 
