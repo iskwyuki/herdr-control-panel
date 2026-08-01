@@ -1,0 +1,36 @@
+# herdr-plugin.toml — herdr-control-panel
+#
+# overlay で開く「コントロールパネル」。fzf のメニューから
+#   - 新規ワークスペースを履歴 / 任意パス（Open Folder）から開く
+#   - 利用者が $HERDR_PLUGIN_CONFIG_DIR/config.toml に足した任意の項目を実行する
+# を選ぶ。起動キーは1つ（herdr の config.toml の [[keys.command]] でバインド）。
+#
+# 同梱する項目はワークスペース関連だけに絞ってある。手元にしか無いツールを前提にした
+# メニューを配布物に含めると、入れた人の環境で無言で失敗する項目になるため。
+#
+# 参考: file-viewer プラグインと同じ構造。[[actions]] の launcher が
+#       `herdr plugin pane open --entrypoint control-panel --placement overlay` を叩いて
+#       下の [[panes]] を overlay として開く。
+
+id = "herdr-control-panel"
+name = "herdr-control-panel"
+version = "0.2.0"
+description = "Control panel: open a workspace from history or any path, and add your own actions."
+min_herdr_version = "0.7.0"
+platforms = ["linux", "macos"]
+
+# パネル本体。placement に指定できるのは overlay/split/tab/zoomed のみ（popup は不可）。
+# overlay = アクティブペインの上に一時表示され、閉じると元のフォーカスに戻る＝パネル用途に最適。
+[[panes]]
+id = "control-panel"
+title = "Control Panel"
+placement = "overlay"
+command = ["bash", "scripts/panel.sh"]
+
+# パネルを開くアクション。config.toml のキーにバインドして起動する。
+[[actions]]
+id = "open-control-panel"
+platforms = ["linux", "macos"]
+title = "Open control panel"
+description = "Open the control panel popup (create workspaces, launch tools)."
+command = ["bash", "scripts/open-control-panel.sh"]
