@@ -1,0 +1,49 @@
+name: test
+
+# PR に対して走らせるのが本命（マージ前に落とす）。push は main に入ったあとの
+# 状態を確認するため。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同じ PR を続けて push したときは古い実行を打ち切る
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 手元（brew）と揃える。ubuntu の apt 版は 0.9.0 で、0.11 が出さない SC2015 を
+  # 出すため、固定しないと「手元では通るのに CI だけ落ちる」が起き続ける
+  SHELLCHECK_VERSION: v0.11.0
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false          # 片方が落ちても、もう片方の結果は見たい
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 静的解析は版を固定できる Linux 側に一本化する。macOS 側は
+      # SKIP_SHELLCHECK でスキップし、bash 3.2 での実行に専念させる
+      - name: Install shellcheck
+        if: runner.os == 'Linux'
+        run: |
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL "$url" | tar -xJf -
+          sudo install "shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/
+
+      - name: Show tool versions
+        run: |
+          /bin/bash --version | head -1
+          shellcheck --version 2>/dev/null | grep version || echo "shellcheck: not installed"
+
+      # /bin/bash を明示するのが肝。macOS ランナーではこれが 3.2 系で、
+      # このプラグインが守ると宣言している下限そのものになる（PATH 上の bash は 5.x）
+      - name: Run tests on the system bash
+        env:
+          SKIP_SHELLCHECK: ${{ runner.os == 'macOS' && '1' || '' }}
+        run: /bin/bash tests/run.sh

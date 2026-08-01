@@ -1,5 +1,7 @@
 # herdr-control-panel
 
+[![test](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml/badge.svg)](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml)
+
 One keybinding, one panel. Open a workspace from your history or from any path on disk — and put your own actions in the same menu.
 
 A plugin for [herdr](https://herdr.dev). Pure bash and fzf, no build step.
@@ -150,6 +152,23 @@ every keystroke. The Open Folder browser is that one trick.
 
 **bash 3.2 compatible.** macOS still ships bash 3.2 as `/bin/bash`, and a terminal launched from
 a GUI app does not necessarily have Homebrew's bash 5 on `PATH`. No associative arrays, no `mapfile`.
+
+## Development
+
+```sh
+tests/run.sh                # everything
+tests/run.sh parse paths    # only tests/test_parse.sh and tests/test_paths.sh
+bash tests/test_parse.sh    # one file, on its own
+```
+
+There is no test framework to install: the harness is a single file of plain bash, and it runs
+under 3.2 like the panel does. CI runs that same script on Linux and macOS via `/bin/bash`, so
+the macOS job exercises the 3.2 floor this plugin promises to support.
+
+`panel.sh` is safe to `source` — running it executes `main`, sourcing it only defines functions —
+so tests call `parse_actions`, `complete_dirs`, `add_history` and friends directly rather than
+driving the UI. The two subcommands the panel already had for its own use (`--check-config` for
+validating your config, `--complete-dirs` for fzf's reload) double as integration entry points.
 
 ## License
 
