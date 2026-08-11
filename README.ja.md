@@ -2,7 +2,8 @@
 
 [![test](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml/badge.svg)](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml)
 
-キーひとつ、パネルひとつ。ワークスペースを履歴または任意のパスから開き、同じメニューに自分の項目を足せる。
+キーひとつ、パネルひとつ。ワークスペースを履歴または任意のパスから開き、忘れたショートカットを引き、
+同じメニューに自分の項目を足せる。
 
 [herdr](https://herdr.dev) のプラグイン。bash と fzf だけで動き、ビルドは要らない。
 
@@ -15,6 +16,7 @@ English README: [README.md](README.md)
 │ > 新規ワークスペース                          │
 │   Lazygit                                    │
 │   File viewer                                │
+│   ⌨ ショートカット一覧                        │
 │   ＋ 機能を追加...                            │
 │   🌐 Language / 言語                          │
 │   キャンセル                                  │
@@ -99,6 +101,39 @@ height = "60%"
 隠しディレクトリは `.` を打ったときだけ候補に出る。履歴が空のときはメニューを挟まず Open Folder が
 直接開く。初期位置は `~/dev`（無ければ `$HOME`）。
 
+## ショートカットを引く
+
+「⌨ ショートカット一覧」は herdr のキーバインドを並べる。他の画面と同じく見出しでまとまり、
+入力で絞り込める:
+
+```
+── herdr
+  ctrl+b            Prefix
+  prefix+n          Next tab
+  prefix+shift+tab  Cycle pane previous
+  ...
+
+── herdr (custom commands)
+  prefix+space      open control panel
+```
+
+この一覧は手で保守していない。既定値は `herdr --default-config`、上書きは
+`~/.config/herdr/config.toml` の `[keys]`、最後のセクションは同じファイルの `[[keys.command]]` から
+取る。割り当てを外したものは出ない。一覧を同梱すると、herdr が既定をひとつ変えた日から黙って
+嘘をつき始める。herdr に聞いていればそうはならない。
+
+一方、herdr の外にあるもの — 端末エミュレータやウィンドウマネージャのキー — はパネルからは
+分からない。プラグイン自身の `config.toml` に書く:
+
+```toml
+[[keys]]
+section     = "WezTerm"      # まとめる見出し。任意
+key         = "Alt+l"
+description = "ドメイン一覧ランチャー"
+```
+
+`--list-keys` を渡すとパネルを開かずに同じ一覧を印字する。fzf の無いヘッドレス環境でも読める。
+
 ## 項目を足す
 
 プラグインの config ディレクトリにある `config.toml` に書く
@@ -111,7 +146,8 @@ command = "lazygit"          # シェルで実行されるのでパイプや引�
 # requires = "lazygit"       # 任意。省略時は command の先頭の語を存在確認する
 ```
 
-受け付ける語彙はこの 3 キーだけ。逸脱は黙って無視せず**行番号を添えて報告する**。
+受け付ける語彙は `[[actions]]` がこの 3 キー、`[[keys]]` が `key` / `description` / `section` だけ。
+逸脱は黙って無視せず**行番号を添えて報告する**。
 値の中にダブルクォートは書けないので、内側はシングルクォートを使う。
 
 パネルの「＋ 機能を追加...」から選んでも**同じファイルに追記される**ので、UI と手書きで
@@ -138,9 +174,16 @@ bash "$(herdr plugin list --json | jq -r '.result.plugins[] | select(.plugin_id=
 動き続ける。キーにバインドされたパネルにとって最悪の結末は、そもそも開かなくなることだ。
 
 **TOML パーサではなく TOML のサブセット。** bash に TOML パーサは無く、まともなものを bash で書けば
-バグの温床になる。そこで、文書化されたサブセット — `[[actions]]` と `label` / `command` / `requires`、
-ダブルクォート囲みの値、エスケープなし — だけを受け付け、外れたものはすべて行番号つきのエラーにした。
+バグの温床になる。そこで、文書化されたサブセット — `[[actions]]` と `[[keys]]`、ダブルクォート囲みの値、
+エスケープなし — だけを受け付け、外れたものはすべて行番号つきのエラーにした。
 初回に書き出されるテンプレートが、その仕様をファイル自身に同梱している。
+
+**herdr の設定は読むが、評価しない。** ショートカット一覧は `~/.config/herdr/config.toml` を同じ
+小さなパーサで読むが、読めない行は報告せず黙って飛ばす。あのファイルは herdr のものであって、
+パネルが「あなたの herdr 設定は間違っている」と言う立場にはない。同時に「何を設定行と見なすか」には
+慎重でなければならない。`herdr --default-config` は全項目がコメントアウトされた雛形で、
+`# type = "shell" runs detached in the background.` のような散文も、緩く読めばキーバインドとして
+成立してしまう（実際に成立し、`Type → shell` という存在しない項目が一覧に出た）。
 
 **自作 TUI ではなく fzf。** マウスクリックを扱え（gum は扱えなかった）、fuzzy 絞り込みが最初から効き、
 `--disabled` と `change:reload` を組み合わせるとクエリ欄が「打つたびに補完し直すパス入力欄」になる。
@@ -162,9 +205,10 @@ bash tests/test_parse.sh    # 1 ファイルを単体で
 このプラグインの下限である 3.2 をそのまま検証することになる。
 
 `panel.sh` は `source` しても安全にしてある（直接実行したときだけ `main` が走り、source では
-関数定義だけが読まれる）。そのためテストは UI を操作せず、`parse_actions` や `complete_dirs`、
-`add_history` を直接呼ぶ。パネルが元々持っていた 2 つのサブコマンド（設定検証の `--check-config` と
-fzf の reload 用 `--complete-dirs`）は、そのまま統合テストの入口として使っている。
+関数定義だけが読まれる）。そのためテストは UI を操作せず、`parse_config` や `complete_dirs`、
+`add_history` を直接呼ぶ。パネルが自分のために持っているサブコマンド（設定検証の `--check-config`、
+ショートカット一覧の `--list-keys`、fzf の reload 用 `--complete-dirs`）は、そのまま統合テストの
+入口として使っている。
 
 ## ライセンス
 

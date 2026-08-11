@@ -3,7 +3,7 @@
 # ensure_config / catalog）。
 #
 # 「Add action... から足したものが、手書きしたものと同じファイルに同じ記法で入る」が
-# 売りなので、書き込み（append_action）と読み込み（parse_actions）の往復を固定する。
+# 売りなので、書き込み（append_action）と読み込み（parse_config）の往復を固定する。
 # ここが食い違うと、UI から足した項目が自分のパーサで弾かれるという最悪の形になる。
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
@@ -11,7 +11,7 @@
 setup() {
   ui_lang=en
   cfg_dir="$TMP/config"
-  actions_file="$cfg_dir/config.toml"
+  config_file="$cfg_dir/config.toml"
   herdr_bin="$TMP/bin/herdr"
   mkdir -p "$TMP/bin"
 }
@@ -81,32 +81,32 @@ test_have_requirement_rejects_a_plugin_when_herdr_is_absent() {
 #-------------------------------------------------------------------------------
 test_appends_a_block_that_parses_back() {
   append_action "My Tool" "mytool --flag"
-  assert_eq "ACT${TAB}My Tool${TAB}mytool --flag${TAB}" "$(parse_actions)"
+  assert_eq "ACT${TAB}My Tool${TAB}mytool --flag${TAB}" "$(parse_config)"
 }
 
 test_appends_without_disturbing_existing_blocks() {
   append_action "First" "first"
   append_action "Second" "second"
   assert_eq "ACT${TAB}First${TAB}first${TAB}${NL}ACT${TAB}Second${TAB}second${TAB}" \
-            "$(parse_actions)"
+            "$(parse_config)"
 }
 
 test_appends_after_a_hand_written_block() {
   mkdir -p "$cfg_dir"
-  printf '[[actions]]\nlabel   = "Hand"\ncommand = "hand"\n' > "$actions_file"
+  printf '[[actions]]\nlabel   = "Hand"\ncommand = "hand"\n' > "$config_file"
   append_action "Added" "added"
   assert_eq "ACT${TAB}Hand${TAB}hand${TAB}${NL}ACT${TAB}Added${TAB}added${TAB}" \
-            "$(parse_actions)"
+            "$(parse_config)"
 }
 
 test_creates_the_config_directory_on_demand() {
   assert_status 0 append_action "A" "a"
-  assert_eq "ACT${TAB}A${TAB}a${TAB}" "$(parse_actions)"
+  assert_eq "ACT${TAB}A${TAB}a${TAB}" "$(parse_config)"
 }
 
 test_keeps_a_command_with_pipes_readable() {
   append_action "Piped" "sh -c 'ls | less'"
-  assert_eq "ACT${TAB}Piped${TAB}sh -c 'ls | less'${TAB}" "$(parse_actions)"
+  assert_eq "ACT${TAB}Piped${TAB}sh -c 'ls | less'${TAB}" "$(parse_config)"
 }
 
 #-------------------------------------------------------------------------------
@@ -114,27 +114,27 @@ test_keeps_a_command_with_pipes_readable() {
 #-------------------------------------------------------------------------------
 test_writes_a_template_on_first_run() {
   ensure_config
-  assert_contains "$(cat "$actions_file")" "[[actions]]"
+  assert_contains "$(cat "$config_file")" "[[actions]]"
 }
 
 test_the_template_passes_its_own_parser() {
   # 雛形が自分のパーサでエラーになるようでは、初回起動から ⚠ が出てしまう
   ensure_config
   assert_status 0 check_config
-  assert_empty "$(parse_actions)" "the template must define nothing yet"
+  assert_empty "$(parse_config)" "the template must define nothing yet"
 }
 
 test_does_not_overwrite_an_existing_config() {
   mkdir -p "$cfg_dir"
-  printf 'mine\n' > "$actions_file"
+  printf 'mine\n' > "$config_file"
   ensure_config
-  assert_eq "mine" "$(cat "$actions_file")"
+  assert_eq "mine" "$(cat "$config_file")"
 }
 
 test_writes_the_japanese_template_when_selected() {
   ui_lang=ja
   ensure_config
-  assert_contains "$(cat "$actions_file")" "ブロックの開始"
+  assert_contains "$(cat "$config_file")" "ブロックの開始"
 }
 
 test_the_japanese_template_also_passes_its_own_parser() {
@@ -161,7 +161,7 @@ test_every_catalog_entry_survives_a_round_trip() {
   catalog | while IFS="$TAB" read -r label command _; do
     append_action "$label" "$command"
   done
-  assert_eq "$want" "$(parse_actions | grep -c '^ACT' | tr -d ' ')"
+  assert_eq "$want" "$(parse_config | grep -c '^ACT' | tr -d ' ')"
 }
 
 test_catalog_requirements_use_a_known_prefix() {

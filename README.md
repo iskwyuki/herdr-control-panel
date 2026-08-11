@@ -2,7 +2,7 @@
 
 [![test](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml/badge.svg)](https://github.com/iskwyuki/herdr-control-panel/actions/workflows/test.yml)
 
-One keybinding, one panel. Open a workspace from your history or from any path on disk — and put your own actions in the same menu.
+One keybinding, one panel. Open a workspace from your history or from any path on disk, look up the shortcut you forgot, and put your own actions in the same menu.
 
 A plugin for [herdr](https://herdr.dev). Pure bash and fzf, no build step.
 
@@ -15,6 +15,7 @@ A plugin for [herdr](https://herdr.dev). Pure bash and fzf, no build step.
 │ > New workspace                              │
 │   Lazygit                                    │
 │   File viewer                                │
+│   ⌨ Keybindings                              │
 │   + Add action...                            │
 │   🌐 Language / 言語                          │
 │   Cancel                                     │
@@ -100,6 +101,39 @@ herdr for its config directory and derives the state directory the same way herd
 Hidden directories appear only once you type a `.`. When the history is empty the menu is skipped
 and Open Folder opens directly. It starts at `~/dev` if that exists, otherwise `$HOME`.
 
+## Looking up a keybinding
+
+`⌨ Keybindings` lists your herdr bindings, grouped and fuzzy-filterable like every other screen:
+
+```
+── herdr
+  ctrl+b            Prefix
+  prefix+n          Next tab
+  prefix+shift+tab  Cycle pane previous
+  ...
+
+── herdr (custom commands)
+  prefix+space      open control panel
+```
+
+Nothing here is hand-maintained. The defaults come from `herdr --default-config`, your overrides
+from the `[keys]` table in `~/.config/herdr/config.toml`, and the last section from your
+`[[keys.command]]` blocks. Bindings you have unset are left out. A shipped cheat sheet would
+start lying the day herdr changed a default; asking herdr cannot.
+
+What the panel *cannot* discover is everything outside herdr — your terminal emulator, your
+window manager. Add those to the plugin's own `config.toml`:
+
+```toml
+[[keys]]
+section     = "WezTerm"      # heading to group it under; optional
+key         = "Alt+l"
+description = "Domain launcher"
+```
+
+`--list-keys` prints the same list without opening the panel, which is also how you read it on a
+headless box with no fzf.
+
 ## Adding your own actions
 
 Write them in `config.toml` in the plugin's config directory
@@ -112,7 +146,8 @@ command = "lazygit"          # run through a shell, so pipes and arguments work
 # requires = "lazygit"       # optional; defaults to the first word of "command"
 ```
 
-Those three keys are the whole vocabulary. Anything else is **reported with its line number**
+Those three keys are the whole vocabulary for `[[actions]]`, and `key` / `description` /
+`section` the whole vocabulary for `[[keys]]`. Anything else is **reported with its line number**
 rather than silently ignored. Values cannot contain a double quote — use single quotes inside.
 
 Picking `+ Add action...` in the panel appends to the very same file, so the UI and hand-editing
@@ -142,9 +177,16 @@ while `New workspace` keeps working. The worst possible outcome for a panel boun
 is that it stops opening at all.
 
 **A TOML subset, not a TOML parser.** bash has no TOML parser, and writing a real one in bash is
-a bug farm. So the parser accepts a documented subset — `[[actions]]` with `label` / `command` /
-`requires`, double-quoted values, no escapes — and everything outside it becomes an error with a
-line number. The template written on first run documents that subset in the file itself.
+a bug farm. So the parser accepts a documented subset — `[[actions]]` and `[[keys]]`,
+double-quoted values, no escapes — and everything outside it becomes an error with a line number.
+The template written on first run documents that subset in the file itself.
+
+**herdr's config is read, never judged.** The keybinding list reads `~/.config/herdr/config.toml`
+with the same tiny parser, but silently skips what it cannot read instead of reporting it. That
+file belongs to herdr; the panel is in no position to tell you your herdr config is wrong. It also
+means being careful about what counts as a setting — `herdr --default-config` is a commented
+template, and prose like `# type = "shell" runs detached in the background.` parses as a binding
+if you are sloppy about it (it did, and `Type → shell` showed up in the list).
 
 **fzf, not a hand-rolled TUI.** It handles mouse clicks (gum did not), it fuzzy-filters for free,
 and `--disabled` plus `change:reload` turns its query line into a path input that re-completes on
@@ -166,9 +208,10 @@ under 3.2 like the panel does. CI runs that same script on Linux and macOS via `
 the macOS job exercises the 3.2 floor this plugin promises to support.
 
 `panel.sh` is safe to `source` — running it executes `main`, sourcing it only defines functions —
-so tests call `parse_actions`, `complete_dirs`, `add_history` and friends directly rather than
-driving the UI. The two subcommands the panel already had for its own use (`--check-config` for
-validating your config, `--complete-dirs` for fzf's reload) double as integration entry points.
+so tests call `parse_config`, `complete_dirs`, `add_history` and friends directly rather than
+driving the UI. The subcommands the panel has for its own use (`--check-config` for validating
+your config, `--list-keys` for reading the keybinding list, `--complete-dirs` for fzf's reload)
+double as integration entry points.
 
 ## License
 
