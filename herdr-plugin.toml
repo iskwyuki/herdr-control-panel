@@ -2,6 +2,7 @@
 #
 # overlay で開く「コントロールパネル」。fzf のメニューから
 #   - 新規ワークスペースを履歴 / 任意パス（Open Folder）から開く
+#   - キーバインドの一覧を引く（herdr の設定から解決。手書きの一覧は同梱しない）
 #   - 利用者が $HERDR_PLUGIN_CONFIG_DIR/config.toml に足した任意の項目を実行する
 # を選ぶ。起動キーは1つ（herdr の config.toml の [[keys.command]] でバインド）。
 #
@@ -14,8 +15,8 @@
 
 id = "herdr-control-panel"
 name = "herdr-control-panel"
-version = "0.2.2"
-description = "Control panel: open a workspace from history or any path, and add your own actions."
+version = "0.3.0"
+description = "Control panel: open a workspace from history or any path, look up your keybindings, and add your own actions."
 min_herdr_version = "0.7.0"
 platforms = ["linux", "macos"]
 

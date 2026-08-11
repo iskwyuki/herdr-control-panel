@@ -21,7 +21,7 @@ NL='
 
 # panel.sh は source した時点で cfg_dir / state_dir を確定させる。実環境
 # （~/.config 配下や herdr への問い合わせ）に触らせないよう、先に砂場を渡しておく。
-# 個々のテストは actions_file / hist_file を $TMP 配下へ差し替えて使う。
+# 個々のテストは config_file / hist_file を $TMP 配下へ差し替えて使う。
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/hcp-sandbox.XXXXXX")"
 export HERDR_PLUGIN_CONFIG_DIR="$SANDBOX/config"
 export HERDR_PLUGIN_STATE_DIR="$SANDBOX/state"

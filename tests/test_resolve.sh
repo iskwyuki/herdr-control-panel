@@ -92,7 +92,7 @@ test_uses_the_home_default_for_state_when_xdg_is_unset() {
 # 派生するファイル名
 #-------------------------------------------------------------------------------
 test_puts_the_config_file_inside_the_config_dir() {
-  assert_eq "/injected/config.toml" "$(resolve actions_file HERDR_PLUGIN_CONFIG_DIR=/injected)"
+  assert_eq "/injected/config.toml" "$(resolve config_file HERDR_PLUGIN_CONFIG_DIR=/injected)"
 }
 
 test_keeps_the_language_file_beside_the_config() {

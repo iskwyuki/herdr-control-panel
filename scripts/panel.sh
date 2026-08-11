@@ -18,10 +18,18 @@
 #   - Open Folder... で任意のパスを入力して開く（~/dev 配下に限定しない）
 # ESC はひとつ前のメニューへ戻り、メインメニューで押すとパネルを閉じる。
 #
+# ショートカット一覧（Keybindings）:
+#   herdr のキーバインドを実際の設定から解決して一覧にする。既定値は
+#   `herdr --default-config` が全部コメントで持っているのでそれを土台にし、
+#   利用者の config.toml の [keys] で上書きする。手書きの一覧を同梱しないのは、
+#   herdr 側の既定が変わったときに黙って嘘をつくようになるため。
+#   ホスト端末側のキー（WezTerm 等）はここからは分からないので、利用者が
+#   $HERDR_PLUGIN_CONFIG_DIR/config.toml に [[keys]] で足す。
+#
 # 利用者による項目の追加:
 #   $HERDR_PLUGIN_CONFIG_DIR/config.toml に [[actions]] を書くと、メニューに並ぶ。
 #   パネルの「Add action...」から選んでも同じファイルに追記される（手書きと同じ置き場）。
-#   受け付ける記法は parse_actions() のサブセットのみで、それ以外は行番号付きで報告する。
+#   受け付ける記法は parse_config() のサブセットのみで、それ以外は行番号付きで報告する。
 #   設定が壊れていてもワークスペース機能は常に使えるようにしてある（パネルごと
 #   起動しなくなるのが最悪の体験なので、設定エラーとコア機能を切り離す）。
 #
@@ -54,9 +62,12 @@ if [ -z "$cfg_dir" ]; then
 fi
 # state の場所を教える CLI は無い（0.7.5 時点）。herdr と同じ規則で組み立てる
 state_dir="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/herdr-control-panel}"
-actions_file="$cfg_dir/config.toml"
+config_file="$cfg_dir/config.toml"
 lang_file="$cfg_dir/language"      # UI から切り替える値なので config.toml とは分けてある
 hist_file="$state_dir/workspaces"
+# herdr 本体の設定。ショートカット一覧が [keys] と [[keys.command]] を読む。
+# herdr の設定パス解決は XDG ベースなので macOS でも ~/Library ではなくここ
+herdr_config_file="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/config.toml"
 hist_max=50
 dev_root="$HOME/dev"
 TAB=$'\t'
@@ -98,6 +109,8 @@ msg() {
 
     ja:item_new)        m='新規ワークスペース' ;;
     *:item_new)         m='New workspace' ;;
+    ja:item_keys)       m='⌨ ショートカット一覧' ;;
+    *:item_keys)        m='⌨ Keybindings' ;;
     ja:item_add)        m='＋ 機能を追加...' ;;
     *:item_add)         m='+ Add action...' ;;
     *:item_lang)        m='🌐 Language / 言語' ;;
@@ -134,6 +147,21 @@ msg() {
     ja:header_lang)     m='言語を選択 / Select language' ;;
     *:header_lang)      m='Select language / 言語を選択' ;;
 
+    # ショートカット一覧。項目名（Next tab 等）は herdr の設定キー名から機械的に
+    # 作るので英語のまま並ぶ。herdr 本体の画面が英語なので、ここだけ訳すと
+    # 突き合わせられなくなる。訳すのはセクション見出しと操作説明だけに留める
+    ja:header_keys)     m='ショートカット一覧 — 入力で絞り込み / ESC で戻る' ;;
+    *:header_keys)      m='Keybindings — type to filter / ESC to go back' ;;
+    ja:keys_none)       m='表示できるショートカットがありません' ;;
+    *:keys_none)        m='No keybindings to show' ;;
+    *:sec_herdr)        m='herdr' ;;
+    ja:sec_herdr_nav)   m='herdr（ナビゲートモード）' ;;
+    *:sec_herdr_nav)    m='herdr (navigate mode)' ;;
+    ja:sec_herdr_cmd)   m='herdr（カスタムコマンド）' ;;
+    *:sec_herdr_cmd)    m='herdr (custom commands)' ;;
+    ja:sec_other)       m='その他' ;;
+    *:sec_other)        m='Other' ;;
+
     ja:err_nodir)       m='ディレクトリがありません: %s' ;;
     *:err_nodir)        m='Directory not found: %s' ;;
     ja:err_ws)          m='ワークスペースの作成に失敗しました: %s' ;;
@@ -155,18 +183,22 @@ msg() {
     # 設定エラーの本文。行番号は呼び出し側が付ける
     ja:e_incomplete)    m='label / command が揃っていません' ;;
     *:e_incomplete)     m='label and command are both required' ;;
-    ja:e_table)         m='未知のテーブルです（使えるのは [[actions]] だけ）: %s' ;;
-    *:e_table)          m='unknown table (only [[actions]] is allowed): %s' ;;
+    ja:e_incomplete_k)  m='key / description が揃っていません' ;;
+    *:e_incomplete_k)   m='key and description are both required' ;;
+    ja:e_table)         m='未知のテーブルです（使えるのは [[actions]] / [[keys]] だけ）: %s' ;;
+    *:e_table)          m='unknown table (only [[actions]] and [[keys]] are allowed): %s' ;;
     ja:e_parse)         m='解釈できない行です: %s' ;;
     *:e_parse)          m='cannot parse this line: %s' ;;
-    ja:e_outside)       m='[[actions]] の外にキーがあります: %s' ;;
-    *:e_outside)        m='key outside of [[actions]]: %s' ;;
+    ja:e_outside)       m='[[actions]] / [[keys]] の外にキーがあります: %s' ;;
+    *:e_outside)        m='key outside of [[actions]] / [[keys]]: %s' ;;
     ja:e_quote)         m='値はダブルクォートで囲んでください: %s' ;;
     *:e_quote)          m='value must be wrapped in double quotes: %s' ;;
     ja:e_inner)         m='値の中の " は使えません（シングルクォートを使ってください）: %s' ;;
     *:e_inner)          m='double quotes inside a value are not supported (use single quotes): %s' ;;
     ja:e_key)           m='未知のキーです（label / command / requires のみ）: %s' ;;
     *:e_key)            m='unknown key (only label / command / requires): %s' ;;
+    ja:e_key_k)         m='未知のキーです（key / description / section のみ）: %s' ;;
+    *:e_key_k)          m='unknown key (only key / description / section): %s' ;;
 
     *:*)                m="${1#*:}" ;;
   esac
@@ -267,12 +299,12 @@ complete_dirs() {
 # （fzf の reload 経路 --complete-dirs は main で捌く。関数はここまでで揃っている）
 
 #-------------------------------------------------------------------------------
-# 利用者定義のアクション（$actions_file）
+# 利用者定義のアクション（$config_file）
 #-------------------------------------------------------------------------------
 # 受け付ける記法は下のテンプレートに書いたサブセットだけ。TOML の全文法は解さない
 # （bash に TOML パーサが無いため、フル実装は自作パーサのバグ源になる）。
 # 想定外の記法は黙って無視せず、行番号を添えて報告する。
-CFG_TEMPLATE_EN='# herdr-control-panel — actions
+CFG_TEMPLATE_EN='# herdr-control-panel — actions and extra keybindings
 #
 # Each [[actions]] block adds one item to the panel. The panel itself ships only
 # with "New workspace"; everything else is yours to add here.
@@ -296,8 +328,17 @@ CFG_TEMPLATE_EN='# herdr-control-panel — actions
 #   [[actions]]
 #   label   = "Lazygit"
 #   command = "lazygit"
+#
+# The "Keybindings" screen lists your herdr bindings, read from herdr itself.
+# Shortcuts that belong to something else -- your terminal emulator, a window
+# manager -- cannot be discovered, so add them here:
+#
+#   [[keys]]
+#   section     = "WezTerm"     # heading to group it under (optional)
+#   key         = "Alt+l"       # the key itself            (required)
+#   description = "Domain launcher"                       # (required)
 '
-CFG_TEMPLATE_JA='# herdr-control-panel — actions
+CFG_TEMPLATE_JA='# herdr-control-panel — 項目とショートカットの追加
 #
 # [[actions]] ブロック 1 つがパネルの項目 1 つになる。パネルが最初から持つのは
 # 「新規ワークスペース」だけで、それ以外はここに自分で足す。
@@ -321,42 +362,67 @@ CFG_TEMPLATE_JA='# herdr-control-panel — actions
 #   [[actions]]
 #   label   = "Lazygit"
 #   command = "lazygit"
+#
+# 「ショートカット一覧」の画面は herdr のキーバインドを herdr 自身から読んで並べる。
+# 端末エミュレータやウィンドウマネージャ側のキーはパネルからは分からないので、
+# 並べたいものはここに書く:
+#
+#   [[keys]]
+#   section     = "WezTerm"      # まとめる見出し（任意）
+#   key         = "Alt+l"        # キーそのもの（必須）
+#   description = "ドメイン一覧ランチャー"   # 説明（必須）
 '
 
 ensure_config() {  # 初回だけテンプレートを書き出す（仕様書をファイル自身に同梱する）
-  [ -f "$actions_file" ] && return 0
+  [ -f "$config_file" ] && return 0
   mkdir -p "$cfg_dir" 2>/dev/null || return 0
   if [ "$ui_lang" = ja ]; then
-    printf '%s' "$CFG_TEMPLATE_JA" > "$actions_file" 2>/dev/null || return 0
+    printf '%s' "$CFG_TEMPLATE_JA" > "$config_file" 2>/dev/null || return 0
   else
-    printf '%s' "$CFG_TEMPLATE_EN" > "$actions_file" 2>/dev/null || return 0
+    printf '%s' "$CFG_TEMPLATE_EN" > "$config_file" 2>/dev/null || return 0
   fi
 }
 
 trim() { printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
 
-# $actions_file を読み、2 種類の行を stdout に混ぜて返す:
-#   ACT<TAB>label<TAB>command<TAB>requires   … 有効なアクション
-#   ERR<TAB>L<行番号>: 本文                   … 解釈できなかった箇所
+# $config_file を読み、3 種類の行を stdout に混ぜて返す:
+#   ACT<TAB>label<TAB>command<TAB>requires        … 有効なアクション
+#   KEY<TAB>section<TAB>key<TAB>description       … ショートカット一覧に足す行
+#   ERR<TAB>L<行番号>: 本文                        … 解釈できなかった箇所
 # 変数ではなく stdout で返すのは、呼び出し側がコマンド置換（＝サブシェル）で受けるため。
 # サブシェルの中でグローバル変数へ積んでも親プロセスには戻らない。
 # 戻り値は常に 0（設定が壊れていてもパネルは開けなければならない）。
-parse_actions() {
-  local line lineno=0 in_block=0 label="" command="" requires="" key val block_line=0
+parse_config() {
+  local line lineno=0 table="" key val block_line=0 \
+        label="" command="" requires="" \
+        section="" keybind="" description=""
 
   emit_err() { printf 'ERR%sL%s: %s\n' "$TAB" "$1" "$2"; }
 
   flush_block() {  # ブロック 1 つ分を検証して出力する
-    [ "$in_block" = 1 ] || return 0
-    if [ -z "$label" ] || [ -z "$command" ]; then
-      emit_err "$block_line" "$(msg e_incomplete)"
-    else
-      printf 'ACT%s%s%s%s%s%s\n' "$TAB" "$label" "$TAB" "$command" "$TAB" "$requires"
-    fi
+    case "$table" in
+      actions)
+        if [ -z "$label" ] || [ -z "$command" ]; then
+          emit_err "$block_line" "$(msg e_incomplete)"
+        else
+          printf 'ACT%s%s%s%s%s%s\n' "$TAB" "$label" "$TAB" "$command" "$TAB" "$requires"
+        fi
+        ;;
+      keys)
+        if [ -z "$keybind" ] || [ -z "$description" ]; then
+          emit_err "$block_line" "$(msg e_incomplete_k)"
+        else
+          # section は任意。省略されたら受け皿の見出しへまとめる
+          printf 'KEY%s%s%s%s%s%s\n' \
+            "$TAB" "${section:-$(msg sec_other)}" "$TAB" "$keybind" "$TAB" "$description"
+        fi
+        ;;
+    esac
     label=""; command=""; requires=""
+    section=""; keybind=""; description=""
   }
 
-  [ -f "$actions_file" ] || return 0
+  [ -f "$config_file" ] || return 0
 
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
@@ -365,7 +431,13 @@ parse_actions() {
       ''|'#'*) continue ;;
       '[[actions]]')
         flush_block
-        in_block=1
+        table=actions
+        block_line=$lineno
+        continue
+        ;;
+      '[[keys]]')
+        flush_block
+        table=keys
         block_line=$lineno
         continue
         ;;
@@ -386,7 +458,7 @@ parse_actions() {
     key="$(trim "${line%%=*}")"
     val="$(trim "${line#*=}")"
 
-    if [ "$in_block" != 1 ]; then
+    if [ -z "$table" ]; then
       emit_err "$lineno" "$(printf "$(msg e_outside)" "$key")"
       continue
     fi
@@ -406,21 +478,29 @@ parse_actions() {
         ;;
     esac
 
-    case "$key" in
-      label)    label="$val" ;;
-      command)  command="$val" ;;
-      requires) requires="$val" ;;
-      *)
+    # 許すキーはテーブルごとに違う。取り違えたときに「どちらの綴りが正しいか」を
+    # 出したいので、種別を含めて引く
+    case "$table:$key" in
+      actions:label)    label="$val" ;;
+      actions:command)  command="$val" ;;
+      actions:requires) requires="$val" ;;
+      keys:key)         keybind="$val" ;;
+      keys:description) description="$val" ;;
+      keys:section)     section="$val" ;;
+      actions:*)
         emit_err "$lineno" "$(printf "$(msg e_key)" "$key")"
         ;;
+      *)
+        emit_err "$lineno" "$(printf "$(msg e_key_k)" "$key")"
+        ;;
     esac
-  done < "$actions_file"
+  done < "$config_file"
 
   flush_block
   return 0
 }
 
-# parse_actions の出力から片方の種別だけを取り出す
+# parse_config の出力から片方の種別だけを取り出す
 only_kind() { printf '%s\n' "$1" | grep "^$2$TAB" || true; }
 
 # エラーは解析順（ブロックの完了判定が後回しになる）で出るため、読む順序に合わせて
@@ -436,18 +516,24 @@ requirement_of() {
 # 設定の検証だけを行う経路（--check-config）。[[actions]] を書いたあとにパネルを開かず確認できる。
 # 問題があれば非ゼロを返すので、シェルからそのまま判定に使える。
 check_config() {
-  local parsed acts errs
-  parsed="$(parse_actions)"
+  local parsed acts keys errs
+  parsed="$(parse_config)"
   acts="$(only_kind "$parsed" ACT)"
+  keys="$(only_kind "$parsed" KEY)"
   errs="$(only_kind "$parsed" ERR | cut -d"$TAB" -f2- | sort_errors)"
-  printf '%s\n' "$actions_file"
-  if [ ! -f "$actions_file" ]; then
+  printf '%s\n' "$config_file"
+  if [ ! -f "$config_file" ]; then
     printf '  %s\n' "$(msg cfg_none)"
     return 0
   fi
   if [ -n "$acts" ]; then
     printf '%s\n' "$acts" | while IFS="$TAB" read -r _ l c r; do
       printf '  ok   %s -> %s%s\n' "$l" "$c" "${r:+ [requires: $r]}"
+    done
+  fi
+  if [ -n "$keys" ]; then
+    printf '%s\n' "$keys" | while IFS="$TAB" read -r _ s k d; do
+      printf '  ok   [%s] %s -> %s\n' "$s" "$k" "$d"
     done
   fi
   if [ -n "$errs" ]; then
@@ -609,14 +695,14 @@ have_requirement() {  # cmd:NAME / plugin:ID / 素のコマンド名 / 空
   esac
 }
 
-append_action() {  # $actions_file に 1 ブロック追記する
+append_action() {  # $config_file に 1 ブロック追記する
   local label="$1" command="$2"
   mkdir -p "$cfg_dir" 2>/dev/null || return 1
   {
     printf '\n[[actions]]\n'
     printf 'label   = "%s"\n' "$label"
     printf 'command = "%s"\n' "$command"
-  } >> "$actions_file" || return 1
+  } >> "$config_file" || return 1
 }
 
 # 入力を 1 行受け取る。fzf の --print-query を入力欄として流用する（パネル内で
@@ -631,7 +717,7 @@ ask_line() {
 
 add_action_flow() {
   local sel label command req added_labels line disp
-  added_labels="$(only_kind "$(parse_actions)" ACT | cut -d"$TAB" -f2)"
+  added_labels="$(only_kind "$(parse_config)" ACT | cut -d"$TAB" -f2)"
 
   sel=$(
     catalog | while IFS="$TAB" read -r label command req; do
@@ -674,8 +760,197 @@ add_action_flow() {
 
   if append_action "$label" "$command"; then
     pause_error "$(msg added): $label
-$(printf "$(msg add_hint)" "$actions_file")"
+$(printf "$(msg add_hint)" "$config_file")"
   fi
+}
+
+#-------------------------------------------------------------------------------
+# ショートカット一覧（Keybindings）
+#-------------------------------------------------------------------------------
+# herdr のキーバインドは 3 か所から集める:
+#   1. `herdr --default-config` の [keys]   … 既定値。全部コメントアウトで載っている
+#   2. 利用者の config.toml の [keys]       … 1 の上書き
+#   3. 同じファイルの [[keys.command]]      … 利用者が足したコマンド
+# 一覧を同梱せず毎回 herdr に聞くのは、herdr 側の既定が変わったときに
+# 黙って嘘をつく状態になるのを避けるため。
+#
+# TOML パーサは持たない（bash に無い）。ここで読むのは
+# 「テーブル見出し」と「名前 = "値"」だけで、それ以外の記法は静かに飛ばす。
+# 自分の config.toml と違ってエラー報告もしない ── herdr 本体の設定ファイルは
+# パネルの管轄外で、herdr が受け付ける記法にケチをつける立場にないため。
+
+# [keys] テーブルの中身を "種別<TAB>名前<TAB>キー" で吐く。
+#   $1 = 1 … 行頭の # を剥がしてから読む（--default-config は全項目がコメント）
+#   $2     … 各行に付ける種別
+#
+# テーブルの終わりは「次の見出し」。--default-config は [[keys.command]] や
+# [keys.indexed] の例もコメントで載せているので、コメントアウトされた見出しも
+# 終端として扱う。ここを見落とすと例の中の key = "prefix+alt+g" や
+# command = "lazygit" を [keys] の項目として拾ってしまう。
+keys_table() {
+  awk -v commented="$1" -v tag="$2" '
+    # 見出し行は行末コメントを落としてから比べる。`[[keys.command]]  # 説明` のような
+    # 書き方は普通にあり、完全一致で見ると見出しを見落として直後のブロックを
+    # 前のテーブルの続きとして読んでしまう
+    function head(s) { sub(/[ \t]*#.*/, "", s); sub(/[ \t]+$/, "", s); return s }
+    { line = $0
+      sub(/^[ \t]+/, "", line)
+      if (commented) { sub(/^#[ \t]?/, "", line) }
+      else if (line ~ /^#/) { next }
+
+      if (line ~ /^\[/) { inside = (head(line) == "[keys]"); next }
+      if (!inside) next
+      if (line !~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/) next
+
+      name = line; sub(/[ \t]*=.*/, "", name)
+      val = line; sub(/^[^=]*=[ \t]*/, "", val)
+      # 値はダブルクォート囲みだけ読む。閉じクォートの後ろは空白か # コメントしか
+      # 許さない ── --default-config の説明文には `type = "shell" runs detached in
+      # the background.` のように「設定行に見える散文」が混ざっており、緩く読むと
+      # これを項目として拾う（実際 Type → shell という幽霊が一覧に出た）
+      if (val !~ /^"[^"]*"[ \t]*(#.*)?$/) next
+      sub(/^"/, "", val); sub(/".*/, "", val)
+
+      print tag "\t" name "\t" val
+    }'
+}
+
+# [[keys.command]] を "キー<TAB>説明" で吐く。description は herdr 側で任意なので、
+# 無ければ command を説明の代わりに見せる（何も出ないよりは手掛かりになる）
+keys_commands() {
+  awk '
+    function value(s,   v) {   # 読み方は keys_table と同じ（理由もそちらのコメント）
+      v = s; sub(/^[^=]*=[ \t]*/, "", v)
+      if (v !~ /^"[^"]*"[ \t]*(#.*)?$/) return ""
+      sub(/^"/, "", v); sub(/".*/, "", v)
+      return v
+    }
+    function emit() {
+      if (key != "") print key "\t" (desc != "" ? desc : cmd)
+      key = ""; desc = ""; cmd = ""
+    }
+    function head(s) { sub(/[ \t]*#.*/, "", s); sub(/[ \t]+$/, "", s); return s }
+    { line = $0
+      sub(/^[ \t]+/, "", line)
+      if (line ~ /^#/) next
+      if (line ~ /^\[/) { emit(); inside = (head(line) == "[[keys.command]]"); next }
+      if (!inside) next
+      if (line !~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/) next
+
+      name = line; sub(/[ \t]*=.*/, "", name)
+      if      (name == "key")         key  = value(line)
+      else if (name == "description") desc = value(line)
+      else if (name == "command")     cmd  = value(line)
+    }
+    END { emit() }'
+}
+
+# 既定値に利用者の設定を被せた herdr のキーバインドを "名前<TAB>キー" で返す。
+# 並び順は --default-config の並び（機能ごとにまとまっている）を保ち、
+# 既定に無い名前だけ後ろへ足す。値が空のものは「割り当て無し」なので落とす。
+herdr_keys() {
+  {
+    if [ -r "$herdr_config_file" ]; then keys_table 0 U < "$herdr_config_file"; fi
+    "$herdr_bin" --default-config 2>/dev/null | keys_table 1 D
+  } | awk -F'\t' '
+      NF < 3 { next }
+      $1 == "U" {
+        val[$2] = $3
+        if (!($2 in useen)) { useen[$2] = 1; uorder[++un] = $2 }
+        next
+      }
+      $1 == "D" {
+        # 利用者が空文字で潰した場合も「設定済み」なので既定で埋め戻さない
+        if (!($2 in val)) val[$2] = $3
+        if (!($2 in dseen)) { dseen[$2] = 1; dorder[++dn] = $2 }
+      }
+      END {
+        for (i = 1; i <= dn; i++) { k = dorder[i]; shown[k] = 1
+                                    if (val[k] != "") print k "\t" val[k] }
+        for (i = 1; i <= un; i++) { k = uorder[i]
+                                    if (!(k in shown) && val[k] != "") print k "\t" val[k] }
+      }'
+}
+
+# 一覧の中身を "KEY<TAB>セクション<TAB>キー<TAB>説明" で返す。
+# 説明は herdr の設定キー名から機械的に作る（next_tab → Next tab）。訳さないのは
+# msg() の該当箇所のコメントに書いた理由による
+keys_rows() {
+  herdr_keys | awk -F'\t' -v std="$(msg sec_herdr)" -v nav="$(msg sec_herdr_nav)" '
+    { name = $1
+      sec = std
+      if (name ~ /^navigate_/) { sec = nav; sub(/^navigate_/, "", name) }
+      gsub(/_/, " ", name)
+      name = toupper(substr(name, 1, 1)) substr(name, 2)
+      print "KEY\t" sec "\t" $2 "\t" name
+    }'
+
+  if [ -r "$herdr_config_file" ]; then
+    keys_commands < "$herdr_config_file" \
+      | awk -F'\t' -v sec="$(msg sec_herdr_cmd)" '{ print "KEY\t" sec "\t" $1 "\t" $2 }'
+  fi
+
+  # 端末エミュレータ等、herdr の外のキー。利用者が自分で書いたぶん
+  only_kind "$(parse_config)" KEY
+}
+
+# fzf に渡す行。他のメニューと同じ "種別<TAB>表示<TAB>値" の 3 列に揃える。
+# セクションごとに見出しを挟み、キー列の幅は一番長いキーに合わせる。
+#
+# 桁揃えに printf の %-Ns を使わないのは、あれがバイト数で詰めるため。
+# キー欄には `Ctrl+クリック` のような全角混じりが普通に来る（利用者が自分の環境の
+# キーを自分の言葉で書く欄なので）。LC_ALL=C を被せて awk の文字列関数を
+# バイト単位に固定したうえで、表示幅は自分で数える ── length() が文字数を返すか
+# バイト数を返すかは awk の実装とロケール次第で、そこに頼ると環境ごとに崩れる
+keys_lines() {
+  keys_rows | LC_ALL=C awk -F'\t' '
+    # UTF-8 のバイト列から表示幅を数える。先頭バイトが 0xE0 以上（3〜4 バイト文字）を
+    # 全角とみなす近似で、CJK と絵文字はこれで合う
+    BEGIN { for (i = 128; i < 256; i++) bv[sprintf("%c", i)] = i }
+    function dwidth(s,   i, n, b, w) {
+      n = length(s); w = 0
+      for (i = 1; i <= n; i++) {
+        b = bv[substr(s, i, 1)]
+        if (b == "")      w += 1   # ASCII
+        else if (b < 192) w += 0   # 継続バイト
+        else if (b < 224) w += 1
+        else              w += 2
+      }
+      return w
+    }
+    function pad(s, to,   p) { p = ""; while (dwidth(s) + length(p) < to) p = p " "; return p }
+
+    $1 != "KEY" { next }
+    { sec = $2
+      if (!(sec in seen)) { seen[sec] = 1; order[++n] = sec }
+      i = ++cnt[sec]
+      k[sec, i] = $3; d[sec, i] = $4
+      if (dwidth($3) > width) width = dwidth($3)
+    }
+    END {
+      if (width < 10) width = 10
+      for (s = 1; s <= n; s++) {
+        sec = order[s]
+        if (s > 1) printf "HEAD\t\t\n"
+        printf "HEAD\t── %s\t\n", sec
+        for (i = 1; i <= cnt[sec]; i++)
+          printf "ITEM\t  %s%s  %s\t\n", k[sec, i], pad(k[sec, i], width), d[sec, i]
+      }
+    }'
+}
+
+keys_flow() {
+  local lines
+  lines="$(keys_lines)"
+  if [ -z "$lines" ]; then
+    pause_error "$(msg keys_none)"
+    return 0
+  fi
+  # 選んで実行するものが無い画面なので結果は捨てる（ESC でも Enter でも戻る）。
+  # --tiebreak=index は絞り込んだときも並びを崩さないため（既定の length だと
+  # 一覧としての順序が壊れて、どのセクションの話か分からなくなる）
+  printf '%s\n' "$lines" | fzf "${fzf_opts[@]}" "${menu_opts[@]}" \
+    --tiebreak=index --header="$(msg header_keys)" >/dev/null || true
 }
 
 #-------------------------------------------------------------------------------
@@ -738,7 +1013,7 @@ migrate_legacy_history() {
 main_menu() {
   local parsed actions cfg_errors action dir cmd
   while :; do
-    parsed="$(parse_actions)"
+    parsed="$(parse_config)"
     actions="$(only_kind "$parsed" ACT)"
     cfg_errors="$(only_kind "$parsed" ERR | cut -d"$TAB" -f2- | sort_errors)"
 
@@ -754,6 +1029,7 @@ main_menu() {
           fi
         done
       fi
+      printf 'KEYS%s%s%s\n' "$TAB" "$(msg item_keys)" "$TAB"
       printf 'ADD%s%s%s\n' "$TAB" "$(msg item_add)" "$TAB"
       printf 'LANG%s%s%s\n' "$TAB" "$(msg item_lang)" "$TAB"
       if [ -n "$cfg_errors" ]; then
@@ -783,6 +1059,11 @@ main_menu() {
         exec bash -c "$cmd"
         ;;
 
+      KEYS)
+        keys_flow || true
+        continue
+        ;;
+
       ADD)
         add_action_flow || true
         continue
@@ -794,7 +1075,7 @@ main_menu() {
         ;;
 
       CFGERR)
-        printf '%s\n\n%s\n' "$(printf "$(msg cfg_header)" "$actions_file")" "$cfg_errors" >&2
+        printf '%s\n\n%s\n' "$(printf "$(msg cfg_header)" "$config_file")" "$cfg_errors" >&2
         pause_error ""
         continue
         ;;
@@ -816,6 +1097,8 @@ main() {
     # fzf の reload から呼ばれる候補生成。メニューを出さず候補だけ吐いて終わる
     --complete-dirs) complete_dirs "${2:-}"; return 0 ;;
     --check-config)  check_config; return $? ;;
+    # パネルを開かずに一覧を確認する経路（fzf の無いヘッドレス環境でも読める）
+    --list-keys)     keys_lines | cut -d"$TAB" -f2; return 0 ;;
   esac
 
   require_deps || return 1
